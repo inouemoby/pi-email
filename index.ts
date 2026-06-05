@@ -2,15 +2,9 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
+import { Text } from "@earendil-works/pi-tui";
 import { readFileSync, existsSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
-
-let _Text: any = null;
-function loadText(): any {
-  if (_Text) return _Text;
-  try { _Text = require("@earendil-works/pi-tui").Text; } catch { _Text = null; }
-  return _Text;
-}
 
 const EXT_DIR = __dirname;
 
@@ -388,7 +382,7 @@ export default function (pi: ExtensionAPI) {
       }
     },
     renderResult(result, { isPartial, expanded }, theme) {
-      const T = loadText();
+      
       if (isPartial) return T ? new T(theme.fg("warning", "Processing..."), 0, 0) : undefined;
       if (!expanded && !result.isError) {
         const summary = result.details?.summary || "Done";
@@ -471,7 +465,7 @@ export default function (pi: ExtensionAPI) {
       }
     },
     renderResult(result, { isPartial, expanded }, theme) {
-      const T = loadText();
+      
       if (isPartial) return T ? new T(theme.fg("warning", "Processing..."), 0, 0) : undefined;
       if (!expanded && !result.isError) {
         const summary = result.details?.summary || "Done";
@@ -515,7 +509,7 @@ export default function (pi: ExtensionAPI) {
       }
     },
     renderResult(result, { isPartial, expanded }, theme) {
-      const T = loadText();
+      
       if (isPartial) return T ? new T(theme.fg("warning", "Processing..."), 0, 0) : undefined;
       if (!expanded && !result.isError) {
         const summary = result.details?.summary || "Done";
