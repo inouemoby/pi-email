@@ -383,13 +383,13 @@ export default function (pi: ExtensionAPI) {
     },
     renderResult(result, { isPartial, expanded }, theme) {
       
-      if (isPartial) return T ? new T(theme.fg("warning", "Processing..."), 0, 0) : undefined;
+      if (isPartial) return Text ? new Text(theme.fg("warning", "Processing..."), 0, 0) : undefined;
       if (!expanded && !result.isError) {
         const summary = result.details?.summary || "Done";
-        return T ? new T(theme.fg("success", `✓ ${summary}`), 0, 0) : undefined;
+        return Text ? new Text(theme.fg("success", `✓ ${summary}`), 0, 0) : undefined;
       }
       const text = result.content?.[0]?.text || "";
-      return T ? new T(theme.fg(result.isError ? "error" : "toolOutput", text), 0, 0) : undefined;
+      return Text ? new Text(theme.fg(result.isError ? "error" : "toolOutput", text), 0, 0) : undefined;
     },
   });
 
@@ -466,13 +466,13 @@ export default function (pi: ExtensionAPI) {
     },
     renderResult(result, { isPartial, expanded }, theme) {
       
-      if (isPartial) return T ? new T(theme.fg("warning", "Processing..."), 0, 0) : undefined;
+      if (isPartial) return Text ? new Text(theme.fg("warning", "Processing..."), 0, 0) : undefined;
       if (!expanded && !result.isError) {
         const summary = result.details?.summary || "Done";
-        return T ? new T(theme.fg("success", `✓ ${summary}`), 0, 0) : undefined;
+        return Text ? new Text(theme.fg("success", `✓ ${summary}`), 0, 0) : undefined;
       }
       const text = result.content?.[0]?.text || "";
-      return T ? new T(theme.fg(result.isError ? "error" : "toolOutput", text), 0, 0) : undefined;
+      return Text ? new Text(theme.fg(result.isError ? "error" : "toolOutput", text), 0, 0) : undefined;
     },
   });
 
@@ -510,13 +510,13 @@ export default function (pi: ExtensionAPI) {
     },
     renderResult(result, { isPartial, expanded }, theme) {
       
-      if (isPartial) return T ? new T(theme.fg("warning", "Processing..."), 0, 0) : undefined;
+      if (isPartial) return Text ? new Text(theme.fg("warning", "Processing..."), 0, 0) : undefined;
       if (!expanded && !result.isError) {
         const summary = result.details?.summary || "Done";
-        return T ? new T(theme.fg("success", `✓ ${summary}`), 0, 0) : undefined;
+        return Text ? new Text(theme.fg("success", `✓ ${summary}`), 0, 0) : undefined;
       }
       const text = result.content?.[0]?.text || "";
-      return T ? new T(theme.fg(result.isError ? "error" : "toolOutput", text), 0, 0) : undefined;
+      return Text ? new Text(theme.fg(result.isError ? "error" : "toolOutput", text), 0, 0) : undefined;
     },
   });
 
