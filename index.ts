@@ -139,7 +139,9 @@ async function refreshGoogleToken(account: AccountConfig): Promise<string | null
     }
   } catch {}
   return null;
-}(account: AccountConfig): Promise<string> {
+}
+
+async function getAccessToken(account: AccountConfig, onUpdate?: any): Promise<string> {
   const key = account.user;
   const oauth = account.oauth2;
   if (!oauth) {
@@ -161,7 +163,8 @@ async function refreshGoogleToken(account: AccountConfig): Promise<string | null
       return token;
     }
     // 需要 interactive 登录
-    const result = await googleInteractiveLogin(account);
+    onUpdate?.({ content: [{ type: "text", text: `🔐 Gmail 需要授权，请在弹出的浏览器中登录 ${account.user}` }] });
+    const result = await googleInteractiveLogin(account, onUpdate);
     tokenCache[key] = result;
     return result.accessToken;
   }
@@ -199,7 +202,8 @@ async function refreshGoogleToken(account: AccountConfig): Promise<string | null
   }
 
   // 5. 需要 interactive 登录（个人 Outlook 等，首次弹出浏览器）
-  const token = await interactiveLogin(account);
+  onUpdate?.({ content: [{ type: "text", text: `🔐 Outlook 需要授权，请在弹出的浏览器中登录 ${account.user}` }] });
+  const token = await interactiveLogin(account, onUpdate);
   tokenCache[key] = token;
   return token.accessToken;
 }
@@ -320,7 +324,7 @@ async function headlessLogin(account: AccountConfig): Promise<{ accessToken: str
 }
 
 // interactive 登录（个人 Outlook 等：弹出浏览器，用户手动授权）
-async function interactiveLogin(account: AccountConfig): Promise<{ accessToken: string; expiresAt: number }> {
+async function interactiveLogin(account: AccountConfig, _onUpdate?: any): Promise<{ accessToken: string; expiresAt: number }> {
   const http = require("node:http");
   const fs = require("node:fs");
   const os = require("node:os");
@@ -348,9 +352,11 @@ async function interactiveLogin(account: AccountConfig): Promise<{ accessToken: 
       else { res.end("..."); }
     });
     server.listen(new URL(oauth.redirect_uri).port || 8401);
+    // 120 秒超时
+    setTimeout(() => { resolve(null); server.close(); }, 120_000);
   });
 
-  if (!code) throw new Error("OAuth2 交互式登录失败");
+  if (!code) throw new Error("OAuth2 授权超时（120秒），请重试");
 
   const response = await pca.acquireTokenByCode({
     code,
@@ -370,7 +376,7 @@ async function interactiveLogin(account: AccountConfig): Promise<{ accessToken: 
 }
 
 // Google 交互式登录（首次弹出浏览器，拿 refresh_token 后自动刷新）
-async function googleInteractiveLogin(account: AccountConfig): Promise<{ accessToken: string; expiresAt: number }> {
+async function googleInteractiveLogin(account: AccountConfig, _onUpdate?: any): Promise<{ accessToken: string; expiresAt: number }> {
   const http = require("node:http");
   const os = require("node:os");
   const oauth = account.oauth2!;
@@ -399,9 +405,10 @@ async function googleInteractiveLogin(account: AccountConfig): Promise<{ accessT
       else { res.end("..."); }
     });
     server.listen(new URL(oauth.redirect_uri).port || 8401);
+    setTimeout(() => { resolve(null); server.close(); }, 120_000);
   });
 
-  if (!code) throw new Error("Google OAuth2 登录失败");
+  if (!code) throw new Error("Google 授权超时（120秒），请重试");
 
   const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
@@ -436,11 +443,11 @@ function getAccount(name?: string): AccountConfig {
 }
 
 // ─── IMAP helper ───
-async function withImap<T>(account: AccountConfig, fn: (client: ImapFlow) => Promise<T>): Promise<T> {
+async function withImap<T>(account: AccountConfig, onUpdate: any, fn: (client: ImapFlow) => Promise<T>): Promise<T> {
   const isOAuth2 = account.auth_type === "oauth2";
   let auth: any;
   if (isOAuth2) {
-    const accessToken = await getAccessToken(account);
+    const accessToken = await getAccessToken(account, onUpdate);
     auth = { user: account.user, accessToken };
   } else {
     auth = { user: account.user, pass: account.pass };
@@ -553,7 +560,7 @@ export default function (pi: ExtensionAPI) {
 
       try {
         const acc = getAccount(accName);
-        const result = await withImap(acc, async (client) => {
+        const result = await withImap(acc, onUpdate, async (client) => {
           const lock = await client.getMailboxLock(folder);
           try {
             const status = await client.status(folder, { messages: true });
@@ -660,7 +667,7 @@ export default function (pi: ExtensionAPI) {
 
       try {
         const acc = getAccount(accName);
-        const result = await withImap(acc, async (client) => {
+        const result = await withImap(acc, onUpdate, async (client) => {
           const lock = await client.getMailboxLock(folder);
           try {
             const msg = await client.fetchOne(uid, {
@@ -730,7 +737,7 @@ export default function (pi: ExtensionAPI) {
       const { account: accName } = params;
       try {
         const acc = getAccount(accName);
-        const folders = await withImap(acc, async (client) => {
+        const folders = await withImap(acc, onUpdate, async (client) => {
           const list = await client.list();
           return list.map((f: any) => {
             const special = f.specialUse ? ` [${f.specialUse}]` : '';
