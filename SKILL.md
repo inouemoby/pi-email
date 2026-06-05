@@ -115,7 +115,8 @@ version: 0.2.0
   "auth_type": "oauth2",
   "oauth2": {
     "provider": "google",
-    "client_id": "764086051850-6qr4p6gpi6hn506pt8ejuq83di341hur.apps.googleusercontent.com",
+    "client_id": "406964657835-aq8lmia8j95dhl1a2bvharmfk3t1hgqj.apps.googleusercontent.com",
+    "client_secret": "kSmqreRr0qwBWJgbf5Y-PjSU",
     "authority": "https://accounts.google.com",
     "scopes": [
       "https://mail.google.com/"

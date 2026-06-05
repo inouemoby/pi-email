@@ -20,6 +20,7 @@ interface AccountConfig {
   oauth2?: {
     provider: string;
     client_id: string;
+    client_secret?: string;
     authority: string;
     scopes: string[];
     redirect_uri: string;
@@ -46,8 +47,10 @@ const CONFIG = loadConfig();
 // ─── OAuth2 token 管理 ───
 // 内存缓存（用于 headless 登录的账号，无 refresh_token）
 const tokenCache: Record<string, { accessToken: string; expiresAt: number }> = {};
-// MSAL 实例缓存（用于有 refresh_token 的账号）
+// MSAL 实例缓存（用于 Microsoft 账号）
 const msalInstances: Record<string, any> = {};
+// Google token 持久化缓存
+const googleTokenCaches: Record<string, { refreshToken: string; accessToken: string; expiresAt: number } | null> = {};
 
 function getMsalCachePath(user: string): string {
   const safe = user.replace(/[^a-zA-Z0-9]/g, "_");
@@ -83,7 +86,60 @@ function saveMsalCache(account: AccountConfig): void {
   } catch {}
 }
 
-async function getAccessToken(account: AccountConfig): Promise<string> {
+function getGoogleCachePath(user: string): string {
+  const safe = user.replace(/[^a-zA-Z0-9]/g, "_");
+  return join(PI_AGENT, `google-token-cache-${safe}.json`);
+}
+
+function loadGoogleCache(user: string): { refreshToken: string; accessToken: string; expiresAt: number } | null {
+  const key = user;
+  if (googleTokenCaches[key]) return googleTokenCaches[key];
+  const cachePath = getGoogleCachePath(user);
+  if (existsSync(cachePath)) {
+    try {
+      const data = JSON.parse(readFileSync(cachePath, "utf-8"));
+      if (data.refresh_token) {
+        googleTokenCaches[key] = data;
+        return data;
+      }
+    } catch {}
+  }
+  return null;
+}
+
+function saveGoogleCache(user: string, data: { refreshToken: string; accessToken: string; expiresAt: number }): void {
+  const key = user;
+  googleTokenCaches[key] = data;
+  try {
+    const cachePath = getGoogleCachePath(user);
+    writeFileSync(cachePath, JSON.stringify(data));
+  } catch {}
+}
+
+async function refreshGoogleToken(account: AccountConfig): Promise<string | null> {
+  const cached = loadGoogleCache(account.user);
+  if (!cached?.refreshToken) return null;
+  const oauth = account.oauth2!;
+  try {
+    const res = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: oauth.client_id,
+        client_secret: oauth.client_secret || "",
+        refresh_token: cached.refreshToken,
+        grant_type: "refresh_token",
+      }),
+    });
+    const data = await res.json() as any;
+    if (data.access_token) {
+      const expiresAt = Date.now() + (data.expires_in || 3600) * 1000;
+      saveGoogleCache(account.user, { refreshToken: cached.refreshToken, accessToken: data.access_token, expiresAt });
+      return data.access_token;
+    }
+  } catch {}
+  return null;
+}(account: AccountConfig): Promise<string> {
   const key = account.user;
   const oauth = account.oauth2;
   if (!oauth) {
@@ -91,7 +147,26 @@ async function getAccessToken(account: AccountConfig): Promise<string> {
     return "";
   }
 
-  // 1. 先试 MSAL 静默刷新（有 refresh_token 的账号）
+  // 1. Google: 用 refresh_token 刷新
+  if (oauth.provider === "google") {
+    // 先检查内存缓存
+    const cached = tokenCache[key];
+    if (cached && cached.expiresAt > Date.now() + 5 * 60 * 1000) {
+      return cached.accessToken;
+    }
+    // 尝试用 refresh_token 刷新
+    const token = await refreshGoogleToken(account);
+    if (token) {
+      tokenCache[key] = { accessToken: token, expiresAt: (loadGoogleCache(account.user))!.expiresAt };
+      return token;
+    }
+    // 需要 interactive 登录
+    const result = await googleInteractiveLogin(account);
+    tokenCache[key] = result;
+    return result.accessToken;
+  }
+
+  // 2. Microsoft: 先试 MSAL 静默刷新
   const pca = getMsalInstance(account);
   const accounts = await pca.getTokenCache().getAllAccounts();
   if (accounts.length > 0) {
@@ -110,20 +185,20 @@ async function getAccessToken(account: AccountConfig): Promise<string> {
     }
   }
 
-  // 2. 内存缓存检查
+  // 3. 内存缓存检查
   const cached = tokenCache[key];
   if (cached && cached.expiresAt > Date.now() + 5 * 60 * 1000) {
     return cached.accessToken;
   }
 
-  // 3. 需要 headless 登录（学校邮箱等无 refresh_token 的账号）
+  // 4. 需要 headless 登录（学校邮箱等无 refresh_token 的账号）
   if (account.login_user || account.pass) {
     const token = await headlessLogin(account);
     tokenCache[key] = token;
     return token.accessToken;
   }
 
-  // 4. 需要 interactive 登录（个人 Outlook 等，首次弹出浏览器）
+  // 5. 需要 interactive 登录（个人 Outlook 等，首次弹出浏览器）
   const token = await interactiveLogin(account);
   tokenCache[key] = token;
   return token.accessToken;
@@ -292,6 +367,64 @@ async function interactiveLogin(account: AccountConfig): Promise<{ accessToken: 
     : Date.now() + 55 * 60 * 1000;
 
   return { accessToken: response.accessToken, expiresAt };
+}
+
+// Google 交互式登录（首次弹出浏览器，拿 refresh_token 后自动刷新）
+async function googleInteractiveLogin(account: AccountConfig): Promise<{ accessToken: string; expiresAt: number }> {
+  const http = require("node:http");
+  const os = require("node:os");
+  const oauth = account.oauth2!;
+
+  const params = new URLSearchParams({
+    client_id: oauth.client_id,
+    redirect_uri: oauth.redirect_uri,
+    response_type: "code",
+    scope: oauth.scopes.join(" "),
+    access_type: "offline",
+    prompt: "consent",
+  });
+  const authUrl = `${oauth.authority}/o/oauth2/v2/auth?${params.toString()}`;
+
+  // 用 HTML 重定向文件打开浏览器
+  const htmlPath = join(os.tmpdir(), "pi-email-google-auth.html");
+  writeFileSync(htmlPath, '<meta http-equiv="refresh" content="0;url=' + authUrl.replace(/&/g, "&amp;") + '">');
+  require("child_process").exec(`cmd /c start "" "${htmlPath}"`);
+
+  const code = await new Promise<string | null>((resolve) => {
+    const server = http.createServer((req: any, res: any) => {
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      const url = new URL(req.url, oauth.redirect_uri);
+      const c = url.searchParams.get("code");
+      if (c) { res.end("OK"); resolve(c); setTimeout(() => server.close(), 1000); }
+      else { res.end("..."); }
+    });
+    server.listen(new URL(oauth.redirect_uri).port || 8401);
+  });
+
+  if (!code) throw new Error("Google OAuth2 登录失败");
+
+  const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      code,
+      client_id: oauth.client_id,
+      client_secret: oauth.client_secret || "",
+      redirect_uri: oauth.redirect_uri,
+      grant_type: "authorization_code",
+    }),
+  });
+  const tokenData = await tokenRes.json() as any;
+  if (!tokenData.access_token) throw new Error("Google OAuth2 登录失败：未收到 access_token");
+
+  const expiresAt = Date.now() + (tokenData.expires_in || 3600) * 1000;
+  saveGoogleCache(account.user, {
+    refreshToken: tokenData.refresh_token,
+    accessToken: tokenData.access_token,
+    expiresAt,
+  });
+
+  return { accessToken: tokenData.access_token, expiresAt };
 }
 
 function getAccount(name?: string): AccountConfig {
