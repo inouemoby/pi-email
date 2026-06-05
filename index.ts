@@ -483,16 +483,11 @@ export default function (pi: ExtensionAPI) {
       try {
         const acc = getAccount(accName);
         const folders = await withImap(acc, async (client) => {
-          const tree = await client.listTree();
-          function flatten(nodes: any[]): string[] {
-            const result: string[] = [];
-            for (const node of nodes) {
-              if (node.name) result.push(node.name);
-              if (node.children) result.push(...flatten(node.children));
-            }
-            return result;
-          }
-          return flatten(tree.children || []);
+          const list = await client.list();
+          return list.map((f: any) => {
+            const special = f.specialUse ? ` [${f.specialUse}]` : '';
+            return `${f.path}${special}`;
+          });
         });
 
         return { content: [{ type: "text", text: `文件夹 (${folders.length}个):\n${folders.join("\n")}` }], details: { summary: `${folders.length}个文件夹` } };
