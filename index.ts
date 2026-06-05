@@ -570,7 +570,7 @@ export default function (pi: ExtensionAPI) {
         }
         text += `\n${result.text}`;
 
-        return { content: [{ type: "text", text }], details: { summary: `读取邮件 [${uid}]: ${(result.subject || "").slice(0, 30)}` } };
+        return { content: [{ type: "text", text }], details: { summary: `读取邮件 [${uid}]: ${result.subject || "(无标题)"}` } };
       } catch (e: any) {
         return { content: [{ type: "text", text: `❌ ${e.message}` }], isError: true };
       }
