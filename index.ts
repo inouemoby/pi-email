@@ -381,15 +381,11 @@ export default function (pi: ExtensionAPI) {
         return { content: [{ type: "text", text: `❌ ${e.message}` }], isError: true };
       }
     },
-    renderResult(result, { isPartial, expanded }, theme) {
-      
-      if (isPartial) return Text ? new Text(theme.fg("warning", "Processing..."), 0, 0) : undefined;
-      if (!expanded && !result.isError) {
-        const summary = result.details?.summary || "Done";
-        return Text ? new Text(theme.fg("success", `✓ ${summary}`), 0, 0) : undefined;
-      }
-      const text = result.content?.[0]?.text || "";
-      return Text ? new Text(theme.fg(result.isError ? "error" : "toolOutput", text), 0, 0) : undefined;
+    renderResult(result, { isPartial }, theme) {
+      if (isPartial) return new Text(theme.fg("warning", "Processing..."), 0, 0);
+      if (result.isError) return new Text(theme.fg("error", result.content?.[0]?.text || "Error"), 0, 0);
+      const summary = result.details?.summary || "Done";
+      return new Text(theme.fg("success", `✓ ${summary}`), 0, 0);
     },
   });
 
@@ -464,15 +460,11 @@ export default function (pi: ExtensionAPI) {
         return { content: [{ type: "text", text: `❌ ${e.message}` }], isError: true };
       }
     },
-    renderResult(result, { isPartial, expanded }, theme) {
-      
-      if (isPartial) return Text ? new Text(theme.fg("warning", "Processing..."), 0, 0) : undefined;
-      if (!expanded && !result.isError) {
-        const summary = result.details?.summary || "Done";
-        return Text ? new Text(theme.fg("success", `✓ ${summary}`), 0, 0) : undefined;
-      }
-      const text = result.content?.[0]?.text || "";
-      return Text ? new Text(theme.fg(result.isError ? "error" : "toolOutput", text), 0, 0) : undefined;
+    renderResult(result, { isPartial }, theme) {
+      if (isPartial) return new Text(theme.fg("warning", "Processing..."), 0, 0);
+      if (result.isError) return new Text(theme.fg("error", result.content?.[0]?.text || "Error"), 0, 0);
+      const summary = result.details?.summary || "Done";
+      return new Text(theme.fg("success", `✓ ${summary}`), 0, 0);
     },
   });
 
@@ -508,15 +500,11 @@ export default function (pi: ExtensionAPI) {
         return { content: [{ type: "text", text: `❌ ${e.message}` }], isError: true };
       }
     },
-    renderResult(result, { isPartial, expanded }, theme) {
-      
-      if (isPartial) return Text ? new Text(theme.fg("warning", "Processing..."), 0, 0) : undefined;
-      if (!expanded && !result.isError) {
-        const summary = result.details?.summary || "Done";
-        return Text ? new Text(theme.fg("success", `✓ ${summary}`), 0, 0) : undefined;
-      }
-      const text = result.content?.[0]?.text || "";
-      return Text ? new Text(theme.fg(result.isError ? "error" : "toolOutput", text), 0, 0) : undefined;
+    renderResult(result, { isPartial }, theme) {
+      if (isPartial) return new Text(theme.fg("warning", "Processing..."), 0, 0);
+      if (result.isError) return new Text(theme.fg("error", result.content?.[0]?.text || "Error"), 0, 0);
+      const summary = result.details?.summary || "Done";
+      return new Text(theme.fg("success", `✓ ${summary}`), 0, 0);
     },
   });
 
