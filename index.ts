@@ -43,32 +43,100 @@ function loadConfig(): EmailConfig {
 
 const CONFIG = loadConfig();
 
-// ─── OAuth2 token 缓存 ───
+// ─── OAuth2 token 管理 ───
+// 内存缓存（用于 headless 登录的账号，无 refresh_token）
 const tokenCache: Record<string, { accessToken: string; expiresAt: number }> = {};
+// MSAL 实例缓存（用于有 refresh_token 的账号）
+const msalInstances: Record<string, any> = {};
+
+function getMsalCachePath(user: string): string {
+  const safe = user.replace(/[^a-zA-Z0-9]/g, "_");
+  return join(PI_AGENT, `oauth-cache-${safe}.json`);
+}
+
+function getMsalInstance(account: AccountConfig): any {
+  const key = account.user;
+  if (!msalInstances[key]) {
+    const { PublicClientApplication } = require("@azure/msal-node");
+    const oauth = account.oauth2!;
+    const pca = new PublicClientApplication({
+      auth: { clientId: oauth.client_id, authority: oauth.authority },
+    });
+    // 加载持久化缓存
+    const cachePath = getMsalCachePath(account.user);
+    if (existsSync(cachePath)) {
+      try { pca.getTokenCache().deserialize(readFileSync(cachePath, "utf-8")); } catch {}
+    }
+    msalInstances[key] = pca;
+  }
+  return msalInstances[key];
+}
+
+function saveMsalCache(account: AccountConfig): void {
+  const pca = msalInstances[account.user];
+  if (!pca) return;
+  try {
+    const cachePath = getMsalCachePath(account.user);
+    const dir = join(cachePath, "..");
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    writeFileSync(cachePath, pca.getTokenCache().serialize());
+  } catch {}
+}
 
 async function getAccessToken(account: AccountConfig): Promise<string> {
   const key = account.user;
+  const oauth = account.oauth2;
+  if (!oauth) {
+    // basic auth: 不需要 access token
+    return "";
+  }
+
+  // 1. 先试 MSAL 静默刷新（有 refresh_token 的账号）
+  const pca = getMsalInstance(account);
+  const accounts = await pca.getTokenCache().getAllAccounts();
+  if (accounts.length > 0) {
+    try {
+      const r = await pca.acquireTokenSilent({ account: accounts[0], scopes: oauth.scopes });
+      if (r?.accessToken) {
+        saveMsalCache(account);
+        tokenCache[key] = {
+          accessToken: r.accessToken,
+          expiresAt: r.expiresOn ? new Date(r.expiresOn).getTime() : Date.now() + 55 * 60 * 1000,
+        };
+        return r.accessToken;
+      }
+    } catch {
+      // 静默刷新失败，继续尝试其他方式
+    }
+  }
+
+  // 2. 内存缓存检查
   const cached = tokenCache[key];
-  // 提前 5 分钟刷新
   if (cached && cached.expiresAt > Date.now() + 5 * 60 * 1000) {
     return cached.accessToken;
   }
-  // 需要重新登录
-  const token = await headlessLogin(account);
+
+  // 3. 需要 headless 登录（学校邮箱等无 refresh_token 的账号）
+  if (account.login_user || account.pass) {
+    const token = await headlessLogin(account);
+    tokenCache[key] = token;
+    return token.accessToken;
+  }
+
+  // 4. 需要 interactive 登录（个人 Outlook 等，首次弹出浏览器）
+  const token = await interactiveLogin(account);
   tokenCache[key] = token;
   return token.accessToken;
 }
 
+// headless 自动登录（学校邮箱：Keycloak SAML 联合认证）
 async function headlessLogin(account: AccountConfig): Promise<{ accessToken: string; expiresAt: number }> {
   const puppeteer = require("puppeteer-core");
   const path = require("node:path");
   const http = require("node:http");
-  const { PublicClientApplication } = require("@azure/msal-node");
 
   const oauth = account.oauth2!;
-  const pca = new PublicClientApplication({
-    auth: { clientId: oauth.client_id, authority: oauth.authority },
-  });
+  const pca = getMsalInstance(account);
 
   const authUrl = await pca.getAuthCodeUrl({
     scopes: oauth.scopes,
@@ -168,7 +236,60 @@ async function headlessLogin(account: AccountConfig): Promise<{ accessToken: str
 
   const expiresAt = response.expiresOn
     ? new Date(response.expiresOn).getTime()
-    : Date.now() + 55 * 60 * 1000; // 默认 55 分钟
+    : Date.now() + 55 * 60 * 1000;
+
+  // 保存 MSAL 缓存（如果拿到 refresh_token）
+  saveMsalCache(account);
+
+  return { accessToken: response.accessToken, expiresAt };
+}
+
+// interactive 登录（个人 Outlook 等：弹出浏览器，用户手动授权）
+async function interactiveLogin(account: AccountConfig): Promise<{ accessToken: string; expiresAt: number }> {
+  const http = require("node:http");
+  const fs = require("node:fs");
+  const os = require("node:os");
+
+  const oauth = account.oauth2!;
+  const pca = getMsalInstance(account);
+
+  const authUrl = await pca.getAuthCodeUrl({
+    scopes: oauth.scopes,
+    redirectUri: oauth.redirect_uri,
+  });
+
+  // 用 HTML 重定向文件打开浏览器（避免 cmd start 截断长 URL）
+  const htmlPath = join(os.tmpdir(), "pi-email-auth.html");
+  fs.writeFileSync(htmlPath, '<meta http-equiv="refresh" content="0;url=' + authUrl.replace(/&/g, "&amp;") + '">');
+  require("child_process").spawn("cmd", ["/c", "start", "", htmlPath], { detached: true });
+
+  // 等待回调
+  const code = await new Promise<string | null>((resolve) => {
+    const server = http.createServer((req: any, res: any) => {
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      const url = new URL(req.url, oauth.redirect_uri);
+      const c = url.searchParams.get("code");
+      if (c) { res.end("OK"); resolve(c); setTimeout(() => server.close(), 1000); }
+      else { res.end("..."); }
+    });
+    server.listen(new URL(oauth.redirect_uri).port || 8401);
+  });
+
+  if (!code) throw new Error("OAuth2 交互式登录失败");
+
+  const response = await pca.acquireTokenByCode({
+    code,
+    scopes: oauth.scopes,
+    redirectUri: oauth.redirect_uri,
+  });
+
+  if (!response.accessToken) throw new Error("OAuth2 登录失败：未收到 access_token");
+
+  saveMsalCache(account);
+
+  const expiresAt = response.expiresOn
+    ? new Date(response.expiresOn).getTime()
+    : Date.now() + 55 * 60 * 1000;
 
   return { accessToken: response.accessToken, expiresAt };
 }
