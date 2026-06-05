@@ -1,7 +1,7 @@
 {
   "name": "pi-email",
   "version": "0.1.0",
-  "description": "Email reading and sending via IMAP/SMTP for pi",
+  "description": "Email reading via IMAP for pi. Supports basic auth and OAuth2 auto-login.",
   "author": "inouemoby",
   "pi": {
     "extensions": [
@@ -13,7 +13,6 @@
     "@earendil-works/pi-tui": "^0.78.1",
     "imapflow": "^1.0.184",
     "mailparser": "^3.7.4",
-    "nodemailer": "^7.0.5",
     "puppeteer-core": "^25.1.0"
   },
   "peerDependencies": {
