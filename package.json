@@ -1,0 +1,23 @@
+{
+  "name": "pi-email",
+  "version": "0.1.0",
+  "description": "Email reading and sending via IMAP/SMTP for pi",
+  "author": "inouemoby",
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "dependencies": {
+    "@azure/msal-node": "^5.2.2",
+    "@earendil-works/pi-tui": "^0.78.1",
+    "imapflow": "^1.0.184",
+    "mailparser": "^3.7.4",
+    "nodemailer": "^7.0.5",
+    "puppeteer-core": "^25.1.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  }
+}
