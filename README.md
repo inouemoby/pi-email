@@ -1,6 +1,6 @@
 # pi-email
 
-Email reading extension for [pi coding agent](https://github.com/earendil-works/pi-mono). Connects to mail servers via IMAP protocol. Supports standard password auth and OAuth2 with automatic headless browser login.
+Email reading extension for [pi coding agent](https://github.com/earendil-works/pi-mono). Reads emails via IMAP with three auth modes: basic password, OAuth2 interactive (browser popup), and OAuth2 headless (fully automatic).
 
 ## Install
 
@@ -11,48 +11,96 @@ pi install git:github.com/inouemoby/pi-email
 ### Prerequisites
 
 - [Node.js](https://nodejs.org/) >= 18
-- [Chrome](https://www.google.com/chrome/) installed at default path (OAuth2 accounts only)
+- [Chrome](https://www.google.com/chrome/) installed at default path (headless OAuth2 accounts only)
 
 ## Configure
 
 Add accounts to `~/.pi/agent/settings.json` under the `"pi-email"` field.
 
-### Standard IMAP (password / app password)
+### Basic auth (QQ Mail, 163, 126, etc.)
+
+Accounts that use authorization codes or app-specific passwords.
 
 ```json
 {
   "pi-email": {
     "accounts": [
       {
-        "name": "My Mail",
-        "imap": { "host": "imap.example.com", "port": 993 },
-        "smtp": { "host": "smtp.example.com", "port": 465 },
-        "user": "user@example.com",
-        "pass": "app-specific-password"
+        "name": "QQ Mail",
+        "imap": { "host": "imap.qq.com", "port": 993 },
+        "user": "xxx@qq.com",
+        "pass": "authorization-code"
       }
     ]
   }
 }
 ```
 
-Common IMAP servers:
-
 | Provider | IMAP Server | Port | Auth |
 |----------|-------------|------|------|
 | QQ Mail | imap.qq.com | 993 | Authorization code |
-| Gmail | imap.gmail.com | 993 | App password |
 | 163 Mail | imap.163.com | 993 | Authorization code |
 | 126 Mail | imap.126.com | 993 | Authorization code |
 
-### Office 365 with OAuth2 (school / corporate)
+### OAuth2 interactive (Outlook.com, Gmail)
 
-For Office 365 accounts that require OAuth2 and federated SAML login (common in Japanese universities). Uses headless Chrome to complete the full login chain automatically — no browser window pops up.
+For personal Microsoft accounts (`@outlook.com` / `@hotmail.com`) and Google accounts (`@gmail.com`). On first use, a browser window opens for the user to manually log in (passkeys/MFA supported). After that, tokens refresh automatically — no repeated login.
+
+**Personal Outlook.com / Hotmail:**
+
+```json
+{
+  "name": "Outlook",
+  "imap": { "host": "outlook.office365.com", "port": 993 },
+  "user": "xxx@outlook.com",
+  "auth_type": "oauth2",
+  "oauth2": {
+    "provider": "microsoft",
+    "client_id": "9e5f94bc-e8a4-4e73-b8be-63364c29d753",
+    "authority": "https://login.microsoftonline.com/common",
+    "scopes": [
+      "https://outlook.office.com/IMAP.AccessAsUser.All",
+      "https://outlook.office.com/SMTP.Send",
+      "offline_access"
+    ],
+    "redirect_uri": "http://localhost:8401/"
+  }
+}
+```
+
+**Gmail:**
+
+```json
+{
+  "name": "Gmail",
+  "imap": { "host": "imap.gmail.com", "port": 993 },
+  "user": "xxx@gmail.com",
+  "auth_type": "oauth2",
+  "oauth2": {
+    "provider": "google",
+    "client_id": "406964657835-aq8lmia8j95dhl1a2bvharmfk3t1hgqj.apps.googleusercontent.com",
+    "client_secret": "kSmqreRr0qwBWJgbf5Y-PjSU",
+    "authority": "https://accounts.google.com",
+    "scopes": ["https://mail.google.com/"],
+    "redirect_uri": "http://localhost:8401/"
+  }
+}
+```
+
+Notes:
+- Outlook scope uses `outlook.office.com` (not `outlook.office365.com`)
+- Outlook authority uses `common`
+- No `pass` or `login_user` needed — these go through browser-based authorization
+- Client IDs are Thunderbird's public client IDs
+
+### OAuth2 headless (Office 365 school / corporate with federated login)
+
+For Office 365 accounts behind federated SAML authentication (e.g. Keycloak). The plugin launches headless Chrome and completes the entire login chain automatically — no user interaction needed.
 
 ```json
 {
   "name": "School Mail",
   "imap": { "host": "outlook.office365.com", "port": 993 },
-  "smtp": { "host": "smtp.office365.com", "port": 587 },
   "user": "user@school.example.jp",
   "pass": "school-idp-password",
   "auth_type": "oauth2",
@@ -75,19 +123,9 @@ For Office 365 accounts that require OAuth2 and federated SAML login (common in 
 |-------|-------------|
 | `user` | Email address for IMAP/SMTP auth |
 | `pass` | Password for the school IdP login |
-| `login_user` | Username for the school login form (if different from email) |
-| `oauth2.client_id` | Thunderbird public client ID — usually no need to change |
+| `login_user` | Username for the school login form (if different from email prefix) |
 
-OAuth2 login flow (fully automatic):
-
-1. Plugin detects expired access_token
-2. Launches headless Chrome in background
-3. Navigates Microsoft login → federated IdP → fills credentials → receives callback
-4. Exchanges authorization code for access_token
-5. Connects IMAP with token
-6. Token cached in memory for ~1 hour
-
-Requirements for OAuth2:
+Requirements:
 - Chrome installed at `C:\Program Files\Google\Chrome\Application\chrome.exe`
 - Account must NOT have MFA (TOTP, Authenticator, etc.)
 
@@ -123,12 +161,19 @@ Requirements for OAuth2:
 }
 ```
 
+## Auth modes summary
+
+| Mode | Accounts | Login frequency | User action |
+|------|----------|-----------------|-------------|
+| Basic | QQ, 163, 126 | Permanent | None |
+| OAuth2 interactive | Outlook.com, Gmail | Once | Login in browser on first use |
+| OAuth2 headless | Office 365 federated | Every ~1 hour | None (automatic) |
+
 ## Limitations
 
 - Read-only, no sending
-- OAuth2 token expires ~1 hour, auto-refresh takes ~10 seconds
-- No MFA support for OAuth2 accounts
 - HTML emails are rendered as plain text
+- OAuth2 headless tokens expire ~1 hour, auto re-login takes ~10 seconds
 
 ## License
 
