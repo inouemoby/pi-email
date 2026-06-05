@@ -4,9 +4,9 @@ import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import { Text } from "@earendil-works/pi-tui";
 import { readFileSync, existsSync, writeFileSync, mkdirSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { join } from "node:path";
 
-const EXT_DIR = __dirname;
+const SKILL_DIR = __dirname;
 
 // ─── 从 settings.json 的 "pi-email" 字段读取配置 ───
 interface AccountConfig {
@@ -30,21 +30,15 @@ interface EmailConfig {
   accounts: AccountConfig[];
 }
 
+const HOME = process.env.USERPROFILE || process.env.HOME || "";
+const PI_AGENT = join(HOME, ".pi", "agent");
+
 function loadConfig(): EmailConfig {
-  let dir = EXT_DIR;
-  for (let i = 0; i < 10; i++) {
-    const candidate = join(dir, "settings.json");
-    if (existsSync(candidate)) {
-      try {
-        const settings = JSON.parse(readFileSync(candidate, "utf-8"));
-        return settings["pi-email"] || { accounts: [] };
-      } catch { /* ignore */ }
-    }
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return { accounts: [] };
+  const settingsPath = join(PI_AGENT, "settings.json");
+  try {
+    const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+    return settings["pi-email"] || { accounts: [] };
+  } catch { return { accounts: [] }; }
 }
 
 const CONFIG = loadConfig();
@@ -505,6 +499,6 @@ export default function (pi: ExtensionAPI) {
 
   // ── Inject skill path ───
   pi.on("resources_discover", async () => {
-    return { skillPaths: [EXT_DIR] };
+    return { skillPaths: [SKILL_DIR] };
   });
 }
