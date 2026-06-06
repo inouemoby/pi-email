@@ -760,11 +760,15 @@ export default function (pi: ExtensionAPI) {
     label: "Email Mark",
     description:
       "Mark emails as read/unread, junk/not-junk, or flagged. " +
+      "Supports batch: seq can be a number, comma-separated list (\"1,3,5\"), range (\"1-10\"), or \"all\". " +
       "Marking as junk moves email to Junk folder, marking as not-junk moves back to INBOX. " +
       "Requires sequence number from email_list.",
     promptSnippet: "邮件标记: 标记已读/未读/垃圾/非垃圾/星标",
     parameters: Type.Object({
-      seq: Type.Number({ description: "Email sequence number from email_list" }),
+      seq: Type.Union([
+        Type.Number({ description: "Email sequence number from email_list" }),
+        Type.String({ description: "Sequence range: '1,3,5' or '1-10' or 'all' (with filter)" }),
+      ], { description: "Email sequence number(s) from email_list" }),
       mark: Type.Union([
         Type.Literal("read"),
         Type.Literal("unread"),
@@ -777,66 +781,89 @@ export default function (pi: ExtensionAPI) {
       account: Type.Optional(Type.String({ description: "Account name or email" })),
     }),
     async execute(_id: string, params: any, _sig: any, onUpdate: any, _ctx: any) {
-      const { seq, mark, folder = "INBOX", account: accName } = params;
-      onUpdate?.({ content: [{ type: "text", text: `🏷 email_mark seq=${seq} mark=${mark}` }] });
+      const { mark, folder = "INBOX", account: accName } = params;
+      let seqInput: string | number = params.seq;
+      // 解析 seq 输入
+      let seqRange: string;
+      if (typeof seqInput === "number") {
+        seqRange = String(seqInput);
+      } else if (seqInput === "all") {
+        seqRange = "all"; // 后续处理
+      } else if (typeof seqInput === "string") {
+        seqRange = seqInput;
+      } else {
+        seqRange = String(seqInput);
+      }
+      onUpdate?.({ content: [{ type: "text", text: `🏷 email_mark seq=${seqRange} mark=${mark}` }] });
 
       try {
         const acc = getAccount(accName);
         const result = await withImap(acc, onUpdate, async (client) => {
           const lock = await client.getMailboxLock(folder);
           try {
+            let range = seqRange;
+            let count = 1;
+            if (seqRange === "all") {
+              const status = await client.status(folder, { messages: true });
+              range = `1:${status.messages}`;
+              count = status.messages || 0;
+            } else {
+              // 计算影响的邮件数
+              count = range.split(",").reduce((n: number, part: string) => {
+                const segs = part.trim().split("-");
+                if (segs.length === 2) return n + Number(segs[1]) - Number(segs[0]) + 1;
+                return n + 1;
+              }, 0);
+            }
             switch (mark) {
               case "read":
-                await client.messageFlagsAdd(seq, ["\\\Seen"], { uid: false });
-                return { action: "标记已读", seq };
+                await client.messageFlagsAdd(range, ["\\\Seen"], { uid: false });
+                return { action: "标记已读", seq: seqRange, count };
 
               case "unread":
-                await client.messageFlagsRemove(seq, ["\\\Seen"], { uid: false });
-                return { action: "标记未读", seq };
+                await client.messageFlagsRemove(range, ["\\\Seen"], { uid: false });
+                return { action: "标记未读", seq: seqRange, count };
 
               case "flag":
-                await client.messageFlagsAdd(seq, ["\\Flagged"], { uid: false });
-                return { action: "加星标", seq };
+                await client.messageFlagsAdd(range, ["\\Flagged"], { uid: false });
+                return { action: "加星标", seq: seqRange, count };
 
               case "unflag":
-                await client.messageFlagsRemove(seq, ["\\Flagged"], { uid: false });
-                return { action: "取消星标", seq };
+                await client.messageFlagsRemove(range, ["\\Flagged"], { uid: false });
+                return { action: "取消星标", seq: seqRange, count };
 
               case "junk": {
-                // 设置 $Junk flag，移除 $NotJunk
-                await client.messageFlagsAdd(seq, ["$Junk"], { uid: false });
-                await client.messageFlagsRemove(seq, ["$NotJunk"], { uid: false });
-                // 移动到垃圾文件夹
+                await client.messageFlagsAdd(range, ["$Junk"], { uid: false });
+                await client.messageFlagsRemove(range, ["$NotJunk"], { uid: false });
                 const junkFolder = await findJunkFolder(client);
                 if (junkFolder && folder !== junkFolder) {
-                  await client.messageMoveTo(seq, junkFolder, { uid: false });
-                  return { action: "标记垃圾并移动", seq, movedTo: junkFolder };
+                  await client.messageMoveTo(range, junkFolder, { uid: false });
+                  return { action: "标记垃圾并移动", seq: seqRange, count, movedTo: junkFolder };
                 }
-                return { action: "标记垃圾", seq, note: "未找到垃圾文件夹，仅设置标记" };
+                return { action: "标记垃圾", seq: seqRange, count, note: "未找到垃圾文件夹，仅设置标记" };
               }
 
               case "not_junk": {
-                // 设置 $NotJunk flag，移除 $Junk
-                await client.messageFlagsAdd(seq, ["$NotJunk"], { uid: false });
-                await client.messageFlagsRemove(seq, ["$Junk"], { uid: false });
-                // 如果在垃圾文件夹，移回收件箱
+                await client.messageFlagsAdd(range, ["$NotJunk"], { uid: false });
+                await client.messageFlagsRemove(range, ["$Junk"], { uid: false });
                 const junkFolder = await findJunkFolder(client);
                 if (junkFolder && folder === junkFolder) {
-                  await client.messageMoveTo(seq, "INBOX", { uid: false });
-                  return { action: "取消垃圾并移回收件箱", seq, movedTo: "INBOX" };
+                  await client.messageMoveTo(range, "INBOX", { uid: false });
+                  return { action: "取消垃圾并移回收件箱", seq: seqRange, count, movedTo: "INBOX" };
                 }
-                return { action: "取消垃圾标记", seq };
+                return { action: "取消垃圾标记", seq: seqRange, count };
               }
 
               default:
-                return { action: "未知操作", seq };
+                return { action: "未知操作", seq: seqRange };
             }
           } finally {
             lock.release();
           }
         });
 
-        const summary = `${result.action} [${seq}]` + (result.movedTo ? ` → ${result.movedTo}` : "");
+        const countInfo = result.count > 1 ? ` (${result.count}封)` : "";
+        const summary = `${result.action} [${seqRange}]${countInfo}` + (result.movedTo ? ` → ${result.movedTo}` : "");
         return { content: [{ type: "text", text: `✓ ${summary}` }], details: { summary } };
       } catch (e: any) {
         return { content: [{ type: "text", text: `❌ ${e.message}` }], isError: true };
