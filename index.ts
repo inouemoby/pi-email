@@ -622,7 +622,8 @@ export default function (pi: ExtensionAPI) {
                 });
                 if (emails.length >= limit) break;
               }
-              return { total, unseen, emails: emails.reverse() };
+              emails.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
+              return { total, unseen, emails };
             } else {
               // 无筛选：直接取最新的
               const end = total - offset;
@@ -637,12 +638,14 @@ export default function (pi: ExtensionAPI) {
                   to: formatAddrs(parsed.to?.value || []),
                   subject: parsed.subject || "",
                   date: parsed.date ? new Date(parsed.date).toLocaleString("zh-CN") : "",
+                  dateObj: parsed.date || new Date(0),
                   isRead,
                   preview: textPreview(parsed.text || "", 80),
                   hasAttachment: (parsed.attachments || []).length > 0,
                 });
               }
-              return { total, unseen, emails: emails.reverse() };
+              emails.sort((a: any, b: any) => (b.dateObj?.getTime?.() || 0) - (a.dateObj?.getTime?.() || 0));
+              return { total, unseen, emails };
             }
           } finally {
             lock.release();
