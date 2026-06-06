@@ -597,12 +597,13 @@ export default function (pi: ExtensionAPI) {
 
               // unread 筛选用 IMAP SEARCH UNSEEN，服务器端搜索更准确
               if (unread && !from && !subject && !body && !since && !before) {
-                const results = await client.search({ unseen: true }, { uid: false });
-                const seqs = [...results];
-                if (seqs.length > 0) {
-                  // fetch 全部未读（只取 envelope + flags，轻量）
-                  const range = seqs.length > 200 ? seqs.sort((a, b) => b - a).slice(0, 200).join(",") : seqs.join(",");
-                  for await (const msg of client.fetch(range, { envelope: true, source: true, flags: true }, { uid: false })) {
+                // search 返回的是 UID，不是 seq
+                const uids = [...await client.search({ unseen: true })];
+                if (uids.length > 0) {
+                  // 限制最多 fetch 200 封
+                  const fetchUids = uids.length > 200 ? uids.slice(-200) : uids;
+                  const range = fetchUids.join(",");
+                  for await (const msg of client.fetch(range, { source: true, flags: true }, { uid: true })) {
                     const parsed = await simpleParser(msg.source as Buffer);
                     emails.push({
                       uid: msg.uid, seq: msg.seq,
