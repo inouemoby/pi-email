@@ -442,6 +442,20 @@ function getAccount(name?: string): AccountConfig {
   return acc;
 }
 
+// 查找垃圾邮件文件夹名（不同邮箱名称不同）
+async function findJunkFolder(client: any): Promise<string | null> {
+  const folders = await client.list();
+  // 按 specialUse 优先，然后按常见名称匹配
+  for (const f of folders) {
+    if (f.specialUse?.includes("\\Junk")) return f.path;
+  }
+  const junkNames = ["垃圾邮件", "Spam", "Junk", "Junk E-mail", "垃圾箱", "[Gmail]/垃圾邮件", "[Gmail]/Spam"];
+  for (const f of folders) {
+    if (junkNames.includes(f.path)) return f.path;
+  }
+  return null;
+}
+
 // ─── IMAP helper ───
 async function withImap<T>(account: AccountConfig, onUpdate: any, fn: (client: ImapFlow) => Promise<T>): Promise<T> {
   const isOAuth2 = account.auth_type === "oauth2";
@@ -726,6 +740,101 @@ export default function (pi: ExtensionAPI) {
   });
 
 
+
+  pi.registerTool({
+    name: "email_mark",
+    label: "Email Mark",
+    description:
+      "Mark emails as read/unread, junk/not-junk, or flagged. " +
+      "Marking as junk moves email to Junk folder, marking as not-junk moves back to INBOX. " +
+      "Requires sequence number from email_list.",
+    promptSnippet: "邮件标记: 标记已读/未读/垃圾/非垃圾/星标",
+    parameters: Type.Object({
+      seq: Type.Number({ description: "Email sequence number from email_list" }),
+      mark: Type.Union([
+        Type.Literal("read"),
+        Type.Literal("unread"),
+        Type.Literal("junk"),
+        Type.Literal("not_junk"),
+        Type.Literal("flag"),
+        Type.Literal("unflag"),
+      ], { description: "Action: read, unread, junk, not_junk, flag, unflag" }),
+      folder: Type.Optional(Type.String({ description: "Folder (default INBOX)" })),
+      account: Type.Optional(Type.String({ description: "Account name or email" })),
+    }),
+    async execute(_id: string, params: any, _sig: any, onUpdate: any, _ctx: any) {
+      const { seq, mark, folder = "INBOX", account: accName } = params;
+      onUpdate?.({ content: [{ type: "text", text: `🏷 email_mark seq=${seq} mark=${mark}` }] });
+
+      try {
+        const acc = getAccount(accName);
+        const result = await withImap(acc, onUpdate, async (client) => {
+          const lock = await client.getMailboxLock(folder);
+          try {
+            switch (mark) {
+              case "read":
+                await client.messageFlagsAdd(seq, ["\\Seen"], { uid: false });
+                return { action: "标记已读", seq };
+
+              case "unread":
+                await client.messageFlagsRemove(seq, ["\\Seen"], { uid: false });
+                return { action: "标记未读", seq };
+
+              case "flag":
+                await client.messageFlagsAdd(seq, ["\\Flagged"], { uid: false });
+                return { action: "加星标", seq };
+
+              case "unflag":
+                await client.messageFlagsRemove(seq, ["\\Flagged"], { uid: false });
+                return { action: "取消星标", seq };
+
+              case "junk": {
+                // 设置 $Junk flag，移除 $NotJunk
+                await client.messageFlagsAdd(seq, ["$Junk"], { uid: false });
+                await client.messageFlagsRemove(seq, ["$NotJunk"], { uid: false });
+                // 移动到垃圾文件夹
+                const junkFolder = await findJunkFolder(client);
+                if (junkFolder && folder !== junkFolder) {
+                  await client.messageMoveTo(seq, junkFolder, { uid: false });
+                  return { action: "标记垃圾并移动", seq, movedTo: junkFolder };
+                }
+                return { action: "标记垃圾", seq, note: "未找到垃圾文件夹，仅设置标记" };
+              }
+
+              case "not_junk": {
+                // 设置 $NotJunk flag，移除 $Junk
+                await client.messageFlagsAdd(seq, ["$NotJunk"], { uid: false });
+                await client.messageFlagsRemove(seq, ["$Junk"], { uid: false });
+                // 如果在垃圾文件夹，移回收件箱
+                const junkFolder = await findJunkFolder(client);
+                if (junkFolder && folder === junkFolder) {
+                  await client.messageMoveTo(seq, "INBOX", { uid: false });
+                  return { action: "取消垃圾并移回收件箱", seq, movedTo: "INBOX" };
+                }
+                return { action: "取消垃圾标记", seq };
+              }
+
+              default:
+                return { action: "未知操作", seq };
+            }
+          } finally {
+            lock.release();
+          }
+        });
+
+        const summary = `${result.action} [${seq}]` + (result.movedTo ? ` → ${result.movedTo}` : "");
+        return { content: [{ type: "text", text: `✓ ${summary}` }], details: { summary } };
+      } catch (e: any) {
+        return { content: [{ type: "text", text: `❌ ${e.message}` }], isError: true };
+      }
+    },
+    renderResult(result, { isPartial }, theme) {
+      if (isPartial) return new Text(theme.fg("warning", "Processing..."), 0, 0);
+      if (result.isError) return new Text(theme.fg("error", result.content?.[0]?.text || "Error"), 0, 0);
+      const summary = result.details?.summary || "Done";
+      return new Text(theme.fg("success", `✓ ${summary}`), 0, 0);
+    },
+  });
 
   pi.registerTool({
     name: "email_folders",
