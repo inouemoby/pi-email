@@ -598,10 +598,11 @@ export default function (pi: ExtensionAPI) {
               // unread 筛选用 IMAP SEARCH UNSEEN，服务器端搜索更准确
               if (unread && !from && !subject && !body && !since && !before) {
                 const results = await client.search({ unseen: true }, { uid: false });
-                const seqs = [...results].sort((a, b) => b - a).slice(0, limit);
+                const seqs = [...results];
                 if (seqs.length > 0) {
-                  const range = seqs.join(",");
-                  for await (const msg of client.fetch(range, { source: true, flags: true }, { uid: false })) {
+                  // fetch 全部未读（只取 envelope + flags，轻量）
+                  const range = seqs.length > 200 ? seqs.sort((a, b) => b - a).slice(0, 200).join(",") : seqs.join(",");
+                  for await (const msg of client.fetch(range, { envelope: true, source: true, flags: true }, { uid: false })) {
                     const parsed = await simpleParser(msg.source as Buffer);
                     emails.push({
                       uid: msg.uid, seq: msg.seq,
@@ -609,11 +610,15 @@ export default function (pi: ExtensionAPI) {
                       to: formatAddrs(parsed.to?.value || []),
                       subject: parsed.subject || "",
                       date: parsed.date ? new Date(parsed.date).toLocaleString("zh-CN") : "",
+                      dateObj: parsed.date || new Date(0),
                       isRead: false,
                       preview: textPreview(parsed.text || "", 80),
                       hasAttachment: (parsed.attachments || []).length > 0,
                     });
                   }
+                  // 按日期倒序，取 limit
+                  emails.sort((a: any, b: any) => (b.dateObj?.getTime?.() || 0) - (a.dateObj?.getTime?.() || 0));
+                  emails.splice(limit);
                 }
                 return { total, unseen, emails };
               }
