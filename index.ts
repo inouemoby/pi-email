@@ -593,10 +593,34 @@ export default function (pi: ExtensionAPI) {
             const unseen = status.unseen || 0;
 
             if (hasFilter) {
-              // 有筛选条件：fetch recent batch + filter client-side
-              const batchSize = Math.min(limit * 5, 200);
-              const start = Math.max(1, total - batchSize + 1);
               const emails: any[] = [];
+
+              // unread 筛选用 IMAP SEARCH UNSEEN，服务器端搜索更准确
+              if (unread && !from && !subject && !body && !since && !before) {
+                const results = await client.search({ unseen: true }, { uid: false });
+                const seqs = [...results].sort((a, b) => b - a).slice(0, limit);
+                if (seqs.length > 0) {
+                  const range = seqs.join(",");
+                  for await (const msg of client.fetch(range, { source: true, flags: true }, { uid: false })) {
+                    const parsed = await simpleParser(msg.source as Buffer);
+                    emails.push({
+                      uid: msg.uid, seq: msg.seq,
+                      from: formatAddrs(parsed.from?.value || []),
+                      to: formatAddrs(parsed.to?.value || []),
+                      subject: parsed.subject || "",
+                      date: parsed.date ? new Date(parsed.date).toLocaleString("zh-CN") : "",
+                      isRead: false,
+                      preview: textPreview(parsed.text || "", 80),
+                      hasAttachment: (parsed.attachments || []).length > 0,
+                    });
+                  }
+                }
+                return { total, unseen, emails };
+              }
+
+              // 其他筛选条件：fetch recent batch + filter client-side
+              const batchSize = Math.min(limit * 5, 500);
+              const start = Math.max(1, total - batchSize + 1);
               for await (const msg of client.fetch(start + ":" + total, { source: true, flags: true }, { uid: false })) {
                 const parsed = await simpleParser(msg.source as Buffer);
                 const eFrom = (parsed.from?.value || []).map((a: any) => (a.name || "") + " " + (a.address || "")).join(" ").toLowerCase();
