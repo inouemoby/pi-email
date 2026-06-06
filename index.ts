@@ -563,8 +563,9 @@ export default function (pi: ExtensionAPI) {
         const result = await withImap(acc, onUpdate, async (client) => {
           const lock = await client.getMailboxLock(folder);
           try {
-            const status = await client.status(folder, { messages: true });
+            const status = await client.status(folder, { messages: true, unseen: true });
             const total = status.messages || 0;
+            const unseen = status.unseen || 0;
 
             if (hasFilter) {
               // 有筛选条件：fetch recent batch + filter client-side
@@ -596,7 +597,7 @@ export default function (pi: ExtensionAPI) {
                 });
                 if (emails.length >= limit) break;
               }
-              return { total, emails: emails.reverse() };
+              return { total, unseen, emails: emails.reverse() };
             } else {
               // 无筛选：直接取最新的
               const end = total - offset;
@@ -616,7 +617,7 @@ export default function (pi: ExtensionAPI) {
                   hasAttachment: (parsed.attachments || []).length > 0,
                 });
               }
-              return { total, emails: emails.reverse() };
+              return { total, unseen, emails: emails.reverse() };
             }
           } finally {
             lock.release();
@@ -630,8 +631,9 @@ export default function (pi: ExtensionAPI) {
         const lines = result.emails.map(e =>
           `${e.isRead ? " " : "🔵"} [${e.seq}] ${fmtDate(new Date(e.date))} ${e.from}\n  └ ${e.subject}${e.preview ? "\n  " + e.preview : ""}`
         ).join("\n");
-        const text = `${folder} (${result.total}封，显示最新${result.emails.length}封)\n${lines}`;
-        return { content: [{ type: "text", text }], details: { summary: `${folder}: ${result.total}封，显示${result.emails.length}封` } };
+        const unseenInfo = result.unseen ? `，${result.unseen}封未读` : "";
+        const text = `${folder} (${result.total}封${unseenInfo}，显示最新${result.emails.length}封)\n${lines}`;
+        return { content: [{ type: "text", text }], details: { summary: `${folder}: ${result.total}封${unseenInfo}，显示${result.emails.length}封` } };
       } catch (e: any) {
         return { content: [{ type: "text", text: `❌ ${e.message}` }], isError: true };
       }
