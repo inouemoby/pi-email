@@ -604,7 +604,7 @@ export default function (pi: ExtensionAPI) {
                 if (body && !eText.includes(body.toLowerCase())) continue;
                 if (since && eDate < new Date(since)) continue;
                 if (before && eDate >= new Date(before)) continue;
-                const isRead = !msg.flags?.has("\\Seen");
+                const isRead = !msg.flags?.has("\\\\Seen");
                 if (unread && isRead) continue;
                 emails.push({
                   uid: msg.uid, seq: msg.seq,
@@ -626,7 +626,7 @@ export default function (pi: ExtensionAPI) {
               const emails: any[] = [];
               for await (const msg of client.fetch(start + ":" + end, { source: true, flags: true }, { uid: false })) {
                 const parsed = await simpleParser(msg.source as Buffer);
-                const isRead = !msg.flags?.has("\\Seen");
+                const isRead = !msg.flags?.has("\\\\Seen");
                 emails.push({
                   uid: msg.uid, seq: msg.seq,
                   from: formatAddrs(parsed.from?.value || []),
@@ -716,7 +716,7 @@ export default function (pi: ExtensionAPI) {
               text: parsed.text || parsed.html?.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() || "",
               html: parsed.html || "",
               attachments,
-              isRead: !msg.flags?.has("\\Seen"),
+              isRead: !msg.flags?.has("\\\\Seen"),
             };
           } finally {
             lock.release();
@@ -780,11 +780,11 @@ export default function (pi: ExtensionAPI) {
           try {
             switch (mark) {
               case "read":
-                await client.messageFlagsAdd(seq, ["\\Seen"], { uid: false });
+                await client.messageFlagsAdd(seq, ["\\\\Seen"], { uid: false });
                 return { action: "标记已读", seq };
 
               case "unread":
-                await client.messageFlagsRemove(seq, ["\\Seen"], { uid: false });
+                await client.messageFlagsRemove(seq, ["\\\\Seen"], { uid: false });
                 return { action: "标记未读", seq };
 
               case "flag":
