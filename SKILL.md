@@ -28,6 +28,19 @@ version: 0.2.0
 - `folder`: 文件夹（默认 INBOX）
 - `account`: 账号名称
 
+### email_mark
+标记邮件。参数：
+- `seq`: 邮件序号（从 email_list 结果的 `[seq]` 获取）
+- `mark`: 操作类型
+  - `read` — 标记已读
+  - `unread` — 标记未读
+  - `junk` — 标记垃圾邮件（自动移动到垃圾文件夹）
+  - `not_junk` — 取消垃圾标记（在垃圾文件夹中时自动移回收件箱）
+  - `flag` — 加星标
+  - `unflag` — 取消星标
+- `folder`: 文件夹（默认 INBOX）
+- `account`: 账号名称
+
 ### email_folders
 列出所有文件夹。
 - `account`: 账号名称
