@@ -595,7 +595,7 @@ export default function (pi: ExtensionAPI) {
             if (hasFilter) {
               const emails: any[] = [];
               // fetch 足够多的最近邮件，客户端筛选
-              const batchSize = Math.min(limit * 10, 1000);
+              const batchSize = Math.min(Math.max(limit * 5, unseen * 3), 5000);
               const start = Math.max(1, total - batchSize + 1);
               for await (const msg of client.fetch(start + ":" + total, { source: true, flags: true }, { uid: false })) {
                 const parsed = await simpleParser(msg.source as Buffer);
