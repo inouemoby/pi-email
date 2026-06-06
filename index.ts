@@ -594,36 +594,8 @@ export default function (pi: ExtensionAPI) {
 
             if (hasFilter) {
               const emails: any[] = [];
-
-              // unread 筛选用 IMAP SEARCH UNSEEN，服务器端搜索更准确
-              if (unread && !from && !subject && !body && !since && !before) {
-                // search 返回 UID 列表
-                const uids = [...await client.search({ unseen: true })];
-                if (uids.length > 0) {
-                  const fetchUids = uids.length > 200 ? uids.slice(-200) : uids;
-                  const range = fetchUids.join(",");
-                  for await (const msg of client.fetch(range, { source: true, flags: true }, { uid: true })) {
-                    const parsed = await simpleParser(msg.source as Buffer);
-                    emails.push({
-                      uid: msg.uid, seq: msg.seq,
-                      from: formatAddrs(parsed.from?.value || []),
-                      to: formatAddrs(parsed.to?.value || []),
-                      subject: parsed.subject || "",
-                      date: parsed.date ? new Date(parsed.date).toLocaleString("zh-CN") : "",
-                      dateObj: parsed.date || new Date(0),
-                      isRead: false,
-                      preview: textPreview(parsed.text || "", 80),
-                      hasAttachment: (parsed.attachments || []).length > 0,
-                    });
-                  }
-                  emails.sort((a: any, b: any) => (b.dateObj?.getTime?.() || 0) - (a.dateObj?.getTime?.() || 0));
-                  emails.splice(limit);
-                }
-                return { total, unseen, emails };
-              }
-
-              // 其他筛选条件：fetch recent batch + filter client-side
-              const batchSize = Math.min(limit * 5, 500);
+              // fetch 足够多的最近邮件，客户端筛选
+              const batchSize = Math.min(limit * 10, 1000);
               const start = Math.max(1, total - batchSize + 1);
               for await (const msg of client.fetch(start + ":" + total, { source: true, flags: true }, { uid: false })) {
                 const parsed = await simpleParser(msg.source as Buffer);
@@ -636,7 +608,7 @@ export default function (pi: ExtensionAPI) {
                 if (body && !eText.includes(body.toLowerCase())) continue;
                 if (since && eDate < new Date(since)) continue;
                 if (before && eDate >= new Date(before)) continue;
-                const isRead = !msg.flags?.has("\\\Seen");
+                const isRead = msg.flags?.has("\\\Seen");
                 if (unread && isRead) continue;
                 emails.push({
                   uid: msg.uid, seq: msg.seq,
@@ -658,7 +630,7 @@ export default function (pi: ExtensionAPI) {
               const emails: any[] = [];
               for await (const msg of client.fetch(start + ":" + end, { source: true, flags: true }, { uid: false })) {
                 const parsed = await simpleParser(msg.source as Buffer);
-                const isRead = !msg.flags?.has("\\\Seen");
+                const isRead = msg.flags?.has("\\\Seen");
                 emails.push({
                   uid: msg.uid, seq: msg.seq,
                   from: formatAddrs(parsed.from?.value || []),
@@ -748,7 +720,7 @@ export default function (pi: ExtensionAPI) {
               text: parsed.text || parsed.html?.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() || "",
               html: parsed.html || "",
               attachments,
-              isRead: !msg.flags?.has("\\\Seen"),
+              isRead: msg.flags.has("\\\Seen"),
             };
           } finally {
             lock.release();
