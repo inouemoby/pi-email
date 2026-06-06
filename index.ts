@@ -98,9 +98,16 @@ function loadGoogleCache(user: string): { refreshToken: string; accessToken: str
   if (existsSync(cachePath)) {
     try {
       const data = JSON.parse(readFileSync(cachePath, "utf-8"));
-      if (data.refresh_token) {
-        googleTokenCaches[key] = data;
-        return data;
+      // 兼容驼峰和下划线两种格式
+      const rt = data.refreshToken || data.refresh_token;
+      if (rt) {
+        const cached = {
+          refreshToken: rt,
+          accessToken: data.accessToken || data.access_token || "",
+          expiresAt: data.expiresAt || Date.now(),
+        };
+        googleTokenCaches[key] = cached;
+        return cached;
       }
     } catch {}
   }
