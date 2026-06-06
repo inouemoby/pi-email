@@ -597,10 +597,9 @@ export default function (pi: ExtensionAPI) {
 
               // unread 筛选用 IMAP SEARCH UNSEEN，服务器端搜索更准确
               if (unread && !from && !subject && !body && !since && !before) {
-                // search 返回的是 UID，不是 seq
+                // search 返回 UID 列表
                 const uids = [...await client.search({ unseen: true })];
                 if (uids.length > 0) {
-                  // 限制最多 fetch 200 封
                   const fetchUids = uids.length > 200 ? uids.slice(-200) : uids;
                   const range = fetchUids.join(",");
                   for await (const msg of client.fetch(range, { source: true, flags: true }, { uid: true })) {
@@ -617,7 +616,6 @@ export default function (pi: ExtensionAPI) {
                       hasAttachment: (parsed.attachments || []).length > 0,
                     });
                   }
-                  // 按日期倒序，取 limit
                   emails.sort((a: any, b: any) => (b.dateObj?.getTime?.() || 0) - (a.dateObj?.getTime?.() || 0));
                   emails.splice(limit);
                 }
