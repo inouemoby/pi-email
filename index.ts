@@ -165,6 +165,7 @@ async function getAccessToken(account: AccountConfig, onUpdate?: any): Promise<s
     }
     // 尝试用 refresh_token 刷新
     const token = await refreshGoogleToken(account);
+    onUpdate?.({ content: [{ type: "text", text: `📧 Gmail token refresh: ${token ? "OK" : "FAILED"}` }] });
     if (token) {
       tokenCache[key] = { accessToken: token, expiresAt: (loadGoogleCache(account.user))!.expiresAt };
       return token;
@@ -483,6 +484,9 @@ async function withImap<T>(account: AccountConfig, onUpdate: any, fn: (client: I
   try {
     await client.connect();
     return await fn(client);
+  } catch (e: any) {
+    onUpdate?.({ content: [{ type: "text", text: `📧 IMAP error for ${account.name}: ${e.message}` }] });
+    throw e;
   } finally {
     await client.logout().catch(() => {});
   }
